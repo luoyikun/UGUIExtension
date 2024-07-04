@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.Profiling;
 using UnityEngine.UI;
 
 [RequireComponent(typeof(ScrollRect))]
@@ -11,8 +12,8 @@ public class DynamicTableNormal : UIBehaviour
 {
     //用于修正某些界限
     const float CALCULATE_OFFSET = 0.001f;
-    //开始下表
-    const int START_INDEX = 1;
+    //开始下标
+    const int START_INDEX = 0;
     /// <summary>
     /// 滑动组件
     /// </summary>
@@ -69,7 +70,18 @@ public class DynamicTableNormal : UIBehaviour
     /// <summary>
     /// 开始索引
     /// </summary>
-    private int StartIndex = START_INDEX;
+    private int m_StartIndex = START_INDEX;
+
+    private int StartIndex
+    {
+        set {
+            m_StartIndex = value;
+            //Debug.Log($"设置StartIndex{StartIndex}");
+        }
+        get {
+            return m_StartIndex;
+        }
+    }
 
     /// <summary>
     /// 检查数据源是否更新
@@ -184,12 +196,12 @@ public class DynamicTableNormal : UIBehaviour
     public LayoutRule.Constraint Constraint = LayoutRule.Constraint.Flexible;
 
     /// <summary>
-    /// 分割数量
+    /// 分割数量，一行几个，或者一列几个
     /// </summary>
     public int ConstraintCount = 2;
 
     /// <summary>
-    /// 容器真实的行列数
+    /// 容器真实的行列数。例如，100个元素3列排列，需要34行，3列
     /// </summary>
     private int ActualColumn, ActualRow;
 
@@ -288,7 +300,7 @@ public class DynamicTableNormal : UIBehaviour
     {
         if (count < 0)
         {
-            Debug.Log("Table Request TotalCellCount at least 0.");
+            //Debug.Log("Table Request TotalCellCount at least 0.");
             return;
         }
 
@@ -322,7 +334,7 @@ public class DynamicTableNormal : UIBehaviour
         Direction = direct;
     }
 
-    public virtual bool IsActive()
+    public override bool IsActive()
     {
         if (ScrRect.viewport.rect.size == Vector2.zero)
             return false;
@@ -424,8 +436,10 @@ public class DynamicTableNormal : UIBehaviour
     {
         IsAsyncLoading = true;
 
+        //锁住不让滑动
         Freeze();
 
+        //全部正在使用的回收
         foreach (var grid in UsingGridSet)
         {
             if (grid == null)
@@ -520,7 +534,8 @@ public class DynamicTableNormal : UIBehaviour
     /// <returns></returns>
     public virtual DynamicGrid DynamicGridAtIndex(int index)
     {
-        if (index <= 0 || index - START_INDEX >= TotalCount)
+        //Debug.Log($"更新cell{index}");
+        if (index < START_INDEX || index - START_INDEX >= TotalCount)
         {
             Debug.LogErrorFormat("Index {0} Overflow TotalCount {1}", index, TotalCount);
             return null;
@@ -537,8 +552,8 @@ public class DynamicTableNormal : UIBehaviour
         //设置位置
         OnTableGridAtIndex(grid);
 
-        if (!grid.gameObject.activeSelf)
-            grid.gameObject.SetActive(true);
+        //if (!grid.gameObject.activeSelf)
+        //    grid.gameObject.SetActive(true);
 
         SetGridsAlongAxis(grid, index);
 
@@ -567,7 +582,8 @@ public class DynamicTableNormal : UIBehaviour
         GameObject obj = Instantiate(Grid.gameObject);
         grid = obj.GetComponent<DynamicGrid>();
         grid.transform.SetParent(ScrRect.content, false);
-
+        if (!grid.gameObject.activeSelf)
+            grid.gameObject.SetActive(true);
         //内嵌套点击事件
         if (IsGridTouchEventEnable)
         {
@@ -600,7 +616,7 @@ public class DynamicTableNormal : UIBehaviour
     {
         if (GridPoolStack.Count <= 0)
             return null;
-
+        //Debug.Log($"缓冲池获取grid");
         return GridPoolStack.Pop();
     }
 
@@ -641,9 +657,10 @@ public class DynamicTableNormal : UIBehaviour
         if (TotalCount == 0)
             return;
 
-        Vector3 vec3 = CalculateStartPosByIndex(Mathf.Clamp(index, START_INDEX, TotalCount));
+        Vector3 vec3 = CalculateStartPosByIndex(Mathf.Clamp(index, START_INDEX, TotalCount-1));
         ContentOffset = new Vector2(vec3.x, vec3.y);
         StartIndex = (int)vec3.z;
+        //Debug.Log($"跳转index：{index},起始StartIndex:{StartIndex}");
     }
 
     /// <summary>
@@ -683,8 +700,6 @@ public class DynamicTableNormal : UIBehaviour
         {
             var grid = PreRecycleGridStack.Pop();
             UsingGridSet.Remove(grid);
-
-            OnTableGridRecycle(grid);
             RecycleTableGrid(grid);
         }
     }
@@ -697,24 +712,27 @@ public class DynamicTableNormal : UIBehaviour
     {
         if (!IsInitCompeleted || IsAsyncLoading)
             return;
-
+        Profiler.BeginSample("OnScrollRectValueChanged111");
         ContentOffset = offset;
 
         int startIndex = GetStartIndexByOffest(offset);
         int endIndex = (startIndex + AvailableViewCount - 1);
-        endIndex = endIndex > TotalCount ? TotalCount : endIndex;
-
+        endIndex = endIndex > TotalCount - 1 ? TotalCount - 1  : endIndex; //最后一个元素不能超过 count -1
+        Profiler.EndSample();
         if (StartIndex == startIndex)
             return;
 
+        Profiler.BeginSample("OnScrollRectValueChanged222");
         StartIndex = startIndex;
+        //Debug.Log($"startIndex:{startIndex} -- endIndex:{endIndex}");
+        //GC在先遍历正在使用，加入到预回收
         //回收
         foreach (var grid in UsingGridSet)
         {
             if (grid.Index > endIndex || grid.Index < startIndex)
                 PreRecycleGridStack.Push(grid);
         }
-
+        //遍历预回收，从在使用中移除，并塞入到回收中
         RecycleGrids();
 
         //出现
@@ -726,6 +744,7 @@ public class DynamicTableNormal : UIBehaviour
 
             DynamicGridAtIndex(i);
         }
+        Profiler.EndSample();
     }
 
     /// <summary>
@@ -769,12 +788,13 @@ public class DynamicTableNormal : UIBehaviour
     {
         if (grid == null)
             return;
-
+        //Debug.Log($"回收节点{grid.Index}");
         OnTableGridRecycle(grid);
         grid.Index = -1;
 
-        if (grid.gameObject.activeSelf)
-            grid.gameObject.SetActive(false);
+        //这会造成耗时，SetActive
+        //if (grid.gameObject.activeSelf)
+        //    grid.gameObject.SetActive(false);
 
         GridPoolStack.Push(grid);
     }
@@ -834,9 +854,10 @@ public class DynamicTableNormal : UIBehaviour
     /// <param name="index"></param>
     public void OnTableGridRecycle(DynamicGrid grid)
     {
-        if (DynamicTableGridDelegate == null)
-            return;
-        DynamicTableGridDelegate((int)LayoutRule.DYNAMIC_DELEGATE_EVENT.DYNAMIC_GRID_RECYCLE, grid.Index, grid);
+        //不需要发送回收事件
+        //if (DynamicTableGridDelegate == null)
+        //    return;
+        //DynamicTableGridDelegate((int)LayoutRule.DYNAMIC_DELEGATE_EVENT.DYNAMIC_GRID_RECYCLE, grid.Index, grid);
     }
 
     /// <summary>
@@ -871,7 +892,7 @@ public class DynamicTableNormal : UIBehaviour
         float width = ViewSize.x;
         float height = ViewSize.y;
 
-        // 可视区域行列数
+        // 可视区域行列数，最起码1个
         int column = 1, row = 1;
 
         /*如果指定列数*/
@@ -926,6 +947,7 @@ public class DynamicTableNormal : UIBehaviour
             ActualRow = Mathf.Clamp(row, 1, TotalCount);
             ActualColumn = Mathf.CeilToInt((float)TotalCount / girdsPerMainAxis);
         }
+        //Debug.Log($"真实行{ActualRow},真实列{ActualColumn}");
     }
 
 
@@ -1046,13 +1068,13 @@ public class DynamicTableNormal : UIBehaviour
     /// <returns></returns>
     public virtual Vector3 CalculateStartPosByIndex(int index)
     {
-        float startIndex = 1;
+        float startIndex = START_INDEX;
 
         /*开始的位置*/
         int cornerX = (int)StartCorner % 2;
         int cornerY = (int)StartCorner / 2;
 
-        int i = index - 1;
+        int i = index - START_INDEX;
         int positionX;
         int positionY;
 
@@ -1089,10 +1111,11 @@ public class DynamicTableNormal : UIBehaviour
                 posOffest.x = leftSpace;
 
             //如果没有超出
-            startIndex = positionX * ActualRow + 1;
+            startIndex = positionX * ActualRow + START_INDEX;
             /*对齐起始点 相对差值*/
             indexOff = TotalCount - (int)startIndex;
             /*可视范围可以存放的Cell的最大值*/
+            //这个是固定值，可以提前计算吗
             int viewCount = Mathf.CeilToInt(ViewSize.x / (GridSize.x + Spacing.x)) * (ActualRow) - 1;
 
             if (indexOff < viewCount && TotalCount > viewCount)
@@ -1112,7 +1135,7 @@ public class DynamicTableNormal : UIBehaviour
                 posOffest.y = 1.0f - leftSpace;
 
             //如果没有超出
-            startIndex = positionY * ActualColumn + 1;
+            startIndex = positionY * ActualColumn + START_INDEX;
             /*对齐起始点*/
             indexOff = TotalCount - (int)startIndex;
             /*可视范围可以存放的Cell的最大值*/
@@ -1142,7 +1165,8 @@ public class DynamicTableNormal : UIBehaviour
         int cornerY = (int)StartCorner / 2;
 
         /*设置Cell的位置*/
-        int i = index - 1;
+        //int i = index - 1;
+        int i = index - START_INDEX; //从0开始不需要-1
 
         int positionX;
         int positionY;
@@ -1193,6 +1217,7 @@ public class DynamicTableNormal : UIBehaviour
     {
         Vector2 col_row = GetCurScrollPerLineIndex();
         //不需要计算缓存
+        //可显示的容量>=需要显示的容量，例如一页可以显示10个，总数为3
         if (AvailableViewCount >= TotalCount)
             return START_INDEX;
 
@@ -1200,14 +1225,14 @@ public class DynamicTableNormal : UIBehaviour
         switch (Direction)
         {
             case LayoutRule.Direction.Horizontal: //水平方向  
-                startIndex = (int)(ActualRow * col_row.x + col_row.y) + 1;
+                startIndex = (int)(ActualRow * col_row.x + col_row.y) + START_INDEX;
                 break;
             case LayoutRule.Direction.Vertical://垂直方向  
-                startIndex = (int)(ActualColumn * col_row.y + col_row.x) + 1;
+                startIndex = (int)(ActualColumn * col_row.y + col_row.x) + START_INDEX;
                 break;
         }
 
-        startIndex = Mathf.Clamp(startIndex, 1, TotalCount);
+        startIndex = Mathf.Clamp(startIndex, START_INDEX, TotalCount - START_INDEX);
         return startIndex;
     }
 

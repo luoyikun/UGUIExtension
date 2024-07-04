@@ -609,8 +609,8 @@ public class DynamicTableCurve : MonoBehaviour, IDragHandler, IBeginDragHandler,
     {
         if (GridPoolStack.Count <= 0)
             return null;
-
-        return GridPoolStack.Pop();
+        DynamicGrid grid = GridPoolStack.Pop();
+        return grid;
     }
 
     /// <summary>

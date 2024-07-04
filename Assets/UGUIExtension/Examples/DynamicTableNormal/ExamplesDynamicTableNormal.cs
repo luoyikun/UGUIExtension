@@ -21,13 +21,16 @@ public class ExamplesDynamicTableNormal : MonoBehaviour
         VerticalDynamicTableNormal.DynamicTableGridDelegate = OnHorizontalDynamicTableViewCallBack;
     }
 
+    //设置item回调
     private void OnHorizontalDynamicTableViewCallBack(int evt, int index, DynamicGrid grid)
     {
-        if (evt == (int) LayoutRule.DYNAMIC_DELEGATE_EVENT.DYNAMIC_GRID_ATINDEX)
-        {
-            TestNormalGrid testGrid = grid as TestNormalGrid;
-            testGrid.SetContent(index);
-        }
+        //传递grid的好处比传递go，可以省去每次的gameObject:GetComponet
+        //Debug.Log($"OnHorizontalDynamicTableViewCallBack:evt:{evt}-index:{index}");
+        //if (evt == (int) LayoutRule.DYNAMIC_DELEGATE_EVENT.DYNAMIC_GRID_ATINDEX)
+        //{
+        //    TestNormalGrid testGrid = grid as TestNormalGrid;
+        //    testGrid.SetContent(index);
+        //}
     }
 
     void OnBtnHorizontalClick()
