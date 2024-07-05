@@ -11,4 +11,9 @@ public class TestNormalGrid : DynamicGrid
     {
         m_Text.text = index.ToString();
     }
+
+    public void SetContent(string str)
+    {
+        m_Text.text = str;
+    }
 }

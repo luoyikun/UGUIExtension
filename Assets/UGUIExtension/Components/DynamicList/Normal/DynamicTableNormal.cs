@@ -72,7 +72,7 @@ public class DynamicTableNormal : UIBehaviour
     /// </summary>
     private int m_StartIndex = START_INDEX;
 
-    private int StartIndex
+    public int StartIndex
     {
         set {
             m_StartIndex = value;
@@ -83,6 +83,8 @@ public class DynamicTableNormal : UIBehaviour
         }
     }
 
+    int m_lastViewStartIndex = -1; //上一次可视区起始位置
+    int m_lastViewEndIndex = -1; //上一次可视区终止索引
     /// <summary>
     /// 检查数据源是否更新
     /// </summary>
@@ -293,21 +295,45 @@ public class DynamicTableNormal : UIBehaviour
     }
 
     /// <summary>
-    /// 总数
+    /// 设置总数,第一次创建item为异步
     /// </summary>
-    /// <param name="count"></param>
-    public virtual void SetTotalCount(int count)
+    /// <param name="count">容量</param>
+    /// <param name="focusIndex">跳转第几个item，从0开始。-1表示不调整，滚动层保持当前位置</param>
+    public virtual void SetTotalCount(int count,int focusIndex = -1)
     {
         if (count < 0)
         {
-            //Debug.Log("Table Request TotalCellCount at least 0.");
+            Debug.LogError("Table Request TotalCellCount at least 0.");
             return;
         }
 
+        if (focusIndex > count - 1)
+        {
+            //Debug.LogError($"不能聚焦大于count-1");
+            return;
+        }
         if (TotalCount != count)
             IsDataDirty = true;
 
         TotalCount = count;
+        if (UsingGridSet.Count == 0)
+        {
+            //第一次使用异步创建item
+            ReloadDataAsync(focusIndex);               
+        }
+        else
+        {
+            //已经创建过item
+            if (focusIndex == -1)
+            {
+                //不需要重新设置位置
+                ResetData(StartIndex);
+            }
+            else {
+                //跳转到item
+                ReloadDataSync(focusIndex);
+            }
+        }
     }
 
     /// <summary>
@@ -386,7 +412,19 @@ public class DynamicTableNormal : UIBehaviour
         ReloadGrids();
     }
 
-
+    public void ResetData(int index)
+    {
+        //计算可视区域和显示的节点数量
+        CalculateAvailableViewGridCount();
+        //计算容器大小
+        CalculateContainerContentSize();
+        //重载时计算所有节点公用的偏移
+        CalculateStartOffest();
+        //检测索引是否越界,跳转位置，否则保持当前位置，只更新当前显示的Grid
+        ResetStartIndex(index);
+        // 重载Grid
+        ReloadGrids();
+    }
 
     /// <summary>
     /// 重载
@@ -448,7 +486,8 @@ public class DynamicTableNormal : UIBehaviour
             RecycleTableGrid(grid);
         }
 
-        UsingGridSet.Clear();
+        //UsingGridSet.Clear(); //全部可使用grid，只要实例化后不能清楚
+  
         //一列或者一行
         int preFrameLoadCount = Direction == LayoutRule.Direction.Horizontal ? ActualRow : ActualColumn;
 
@@ -460,12 +499,12 @@ public class DynamicTableNormal : UIBehaviour
             //按照行列进行分帧加载
             if (GridLoadRule == LayoutRule.GridLoadRule.PER_GRID)
             {
-                yield return new WaitForSeconds(GridLoadInteral);
+                yield return null;
             }
             else
             {
                 if (preFrameLoadCount != 0 && i % preFrameLoadCount == 0)
-                    yield return new WaitForSeconds(GridLoadInteral);
+                    yield return null;
             }
 
         }
@@ -493,7 +532,7 @@ public class DynamicTableNormal : UIBehaviour
             RecycleTableGrid(grid);
         }
 
-        UsingGridSet.Clear();
+        //UsingGridSet.Clear();
 
         /*防止超出*/
         int count = (TotalCount > AvailableViewCount + StartIndex - START_INDEX) ? AvailableViewCount : TotalCount - StartIndex + START_INDEX;
@@ -704,18 +743,16 @@ public class DynamicTableNormal : UIBehaviour
     }
 
     /// <summary>
-    /// 回收
+    /// 刷新当前显示的items
     /// </summary>
-    void RecycleGrids()
+    public void RefreshCurItems()
     {
-        if (PreRecycleGridStack == null || PreRecycleGridStack.Count <= 0)
-            return;
-
-        while (PreRecycleGridStack.Count > 0)
+        foreach (var grid in UsingGridSet)
         {
-            var grid = PreRecycleGridStack.Pop();
-            UsingGridSet.Remove(grid);
-            RecycleTableGrid(grid);
+            if (grid.Index != -1)
+            {
+                OnTableGridAtIndex(grid);
+            }
         }
     }
 
@@ -832,13 +869,16 @@ public class DynamicTableNormal : UIBehaviour
         PreRecycleGridStack.Push(grid);
     }
 
+    /// <summary>
+    /// 删除全部子物体
+    /// </summary>
     public void Clear()
     {
         foreach (var grid in UsingGridSet)
         {
             if (grid != null)
             {
-                RecycleTableGrid(grid);
+                //RecycleTableGrid(grid);
 
                 if (!Application.isPlaying)
                     DestroyImmediate(grid.gameObject);
@@ -847,17 +887,17 @@ public class DynamicTableNormal : UIBehaviour
             }
         }
 
-        while (PreRecycleGridStack.Count > 0)
-        {
-            var grid = PreRecycleGridStack.Pop();
-            if (grid != null)
-            {
-                if (!Application.isPlaying)
-                    DestroyImmediate(grid.gameObject);
-                else
-                    Destroy(grid.gameObject);
-            }
-        }
+        //while (PreRecycleGridStack.Count > 0)
+        //{
+        //    var grid = PreRecycleGridStack.Pop();
+        //    if (grid != null)
+        //    {
+        //        if (!Application.isPlaying)
+        //            DestroyImmediate(grid.gameObject);
+        //        else
+        //            Destroy(grid.gameObject);
+        //    }
+        //}
 
         UsingGridSet.Clear();
         PreRecycleGridStack.Clear();
