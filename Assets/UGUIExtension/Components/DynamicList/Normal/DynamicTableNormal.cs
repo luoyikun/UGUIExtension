@@ -106,7 +106,7 @@ public class DynamicTableNormal : UIBehaviour
     /// <summary>
     /// 缓存列表
     /// </summary>
-    private Stack<DynamicGrid> GridPoolStack = new Stack<DynamicGrid>();
+    //private Stack<DynamicGrid> GridPoolStack = new Stack<DynamicGrid>();
 
     /// <summary>
     /// 是否第一次初始化完成
@@ -547,16 +547,16 @@ public class DynamicTableNormal : UIBehaviour
             Debug.LogErrorFormat("DynamicTable Load Grid at Index {0} Fail!", index);
 
         grid.Index = index;
-        UsingGridSet.Add(grid);
 
+        Profiler.BeginSample("DynamicGridAtIndex111");
         //设置位置
         OnTableGridAtIndex(grid);
-
+        Profiler.EndSample();
         //if (!grid.gameObject.activeSelf)
         //    grid.gameObject.SetActive(true);
-
+        Profiler.BeginSample("DynamicGridAtIndex2222");
         SetGridsAlongAxis(grid, index);
-
+        Profiler.EndSample();
         return grid;
     }
 
@@ -578,23 +578,31 @@ public class DynamicTableNormal : UIBehaviour
         if (grid != null)
             return grid;
 
-
+        Profiler.BeginSample("LoadGridFormPool Create");
         GameObject obj = Instantiate(Grid.gameObject);
         grid = obj.GetComponent<DynamicGrid>();
+        UsingGridSet.Add(grid); //只要实例化的那就是全体可用的。。全体可用是指全部实例化出来
         grid.transform.SetParent(ScrRect.content, false);
         if (!grid.gameObject.activeSelf)
             grid.gameObject.SetActive(true);
+        Profiler.EndSample();
+        Profiler.BeginSample("LoadGridFormPool Click");
         //内嵌套点击事件
         if (IsGridTouchEventEnable)
         {
             DynamicGridClickHelper trigger = grid.GetComponent<DynamicGridClickHelper>();
             if (trigger == null)
                 trigger = grid.gameObject.AddComponent<DynamicGridClickHelper>();
+            trigger.m_grid = grid;
+            trigger.m_OnTableGridTouched = OnTableGridTouched;
+            trigger.SetupClickEnable(true);
 
-            trigger.SetupClickEnable(true, delegate (PointerEventData eventData)
-            {
-                OnTableGridTouched(grid, eventData);
-            });
+            //匿名委托产生96B gc
+            //trigger.SetupClickEnable(true, delegate (PointerEventData eventData)
+            //{
+            //    OnTableGridTouched(grid, eventData);
+            //});
+
         }
         else
         {
@@ -603,10 +611,12 @@ public class DynamicTableNormal : UIBehaviour
                 trigger.SetupClickEnable(false);
         }
 
-
+        Profiler.EndSample();
         return grid;
     }
 
+
+    
 
     /// <summary>
     /// 从池中获取Grid
@@ -614,17 +624,22 @@ public class DynamicTableNormal : UIBehaviour
     /// <returns></returns>
     protected DynamicGrid DequeueCell()
     {
-        if (GridPoolStack.Count <= 0)
+        if (PreRecycleGridStack.Count <= 0)
             return null;
         //Debug.Log($"缓冲池获取grid");
-        return GridPoolStack.Pop();
+        //PublicFunc.Log($"缓冲池获取grid");
+        Profiler.BeginSample("DequeueCell");
+        DynamicGrid grid = PreRecycleGridStack.Pop();
+        Profiler.EndSample();
+        return grid;
     }
+
 
     /// <summary>
     /// 重置索引
     /// </summary>
     /// <param name="startIndex"></param>
-    void ResetStartIndex(int startIndex)
+    public void ResetStartIndex(int startIndex)
     {
 
         StartIndex = StartIndex < START_INDEX ? START_INDEX : StartIndex;
@@ -652,7 +667,7 @@ public class DynamicTableNormal : UIBehaviour
     /// </summary>
     /// <param name="index">下标</param>
     /// <returns></returns>
-    protected virtual void JumpToIndex(int index)
+    public void JumpToIndex(int index)
     {
         if (TotalCount == 0)
             return;
@@ -666,7 +681,7 @@ public class DynamicTableNormal : UIBehaviour
     /// <summary>
     /// 定位到某个位置
     /// </summary>
-    protected virtual void JumpToPosition()
+    public void JumpToPosition()
     {
         if (TotalCount == 0)
         {
@@ -682,7 +697,7 @@ public class DynamicTableNormal : UIBehaviour
     /// <summary>
     /// 设置偏移
     /// </summary>
-    protected virtual void SetContentOffest()
+    public void SetContentOffest()
     {
         ScrRect.horizontalNormalizedPosition = Mathf.Clamp01(ContentOffset.x);
         ScrRect.verticalNormalizedPosition = Mathf.Clamp01(ContentOffset.y);
@@ -730,21 +745,38 @@ public class DynamicTableNormal : UIBehaviour
         foreach (var grid in UsingGridSet)
         {
             if (grid.Index > endIndex || grid.Index < startIndex)
+            {
+                PublicFunc.Log($"放入预回收池{grid.Index}--startIndex{startIndex}--endIndex{endIndex}");
+                grid.Index = -1;
                 PreRecycleGridStack.Push(grid);
-        }
-        //遍历预回收，从在使用中移除，并塞入到回收中
-        RecycleGrids();
-
-        //出现
-        for (int i = startIndex; i <= endIndex; ++i)
-        {
-            DynamicGrid grid = GetGridByIndex(i);
-            if (grid != null)
-                continue;
-
-            DynamicGridAtIndex(i);
+            }
         }
         Profiler.EndSample();
+
+        //遍历预回收，从在使用中移除，并塞入到回收中。频繁的数组移动造成gc。直接从预回收中取
+        //RecycleGrids();
+
+        Profiler.BeginSample("OnScrollRectValueChanged3333");
+
+        //出现，这是指当前可视区的起始-末尾
+        //其实可以比对上次的start，end，得到这次需要显示的。如果几百个一起遍历还是比较耗时
+        for (int i = startIndex; i <= endIndex; ++i)
+        {
+            Profiler.BeginSample("OnScrollRectValueChanged4444");
+            DynamicGrid grid = GetGridByIndex(i);
+            Profiler.EndSample();
+            if (grid != null)
+            {
+                //已经在View中的不处理
+                continue;
+            }
+            //新出现设置
+            Profiler.BeginSample("OnScrollRectValueChanged555");
+            DynamicGridAtIndex(i);
+            Profiler.EndSample();
+        }
+        Profiler.EndSample();
+
     }
 
     /// <summary>
@@ -754,6 +786,7 @@ public class DynamicTableNormal : UIBehaviour
     /// <returns></returns>
     public DynamicGrid GetGridByIndex(int index)
     {
+        //每次访问是遍历，可以把useGrid换成字典形式，可能比遍历访问快点
         foreach (var grid in UsingGridSet)
         {
             if (grid.Index != index)
@@ -796,7 +829,7 @@ public class DynamicTableNormal : UIBehaviour
         //if (grid.gameObject.activeSelf)
         //    grid.gameObject.SetActive(false);
 
-        GridPoolStack.Push(grid);
+        PreRecycleGridStack.Push(grid);
     }
 
     public void Clear()
@@ -814,9 +847,9 @@ public class DynamicTableNormal : UIBehaviour
             }
         }
 
-        while (GridPoolStack.Count > 0)
+        while (PreRecycleGridStack.Count > 0)
         {
-            var grid = GridPoolStack.Pop();
+            var grid = PreRecycleGridStack.Pop();
             if (grid != null)
             {
                 if (!Application.isPlaying)
@@ -827,7 +860,7 @@ public class DynamicTableNormal : UIBehaviour
         }
 
         UsingGridSet.Clear();
-        GridPoolStack.Clear();
+        PreRecycleGridStack.Clear();
 
         IsAsyncLoading = false;
         IsInitCompeleted = false;
@@ -1203,9 +1236,10 @@ public class DynamicTableNormal : UIBehaviour
     {
         if (rect == null)
             return;
-
+        Profiler.BeginSample("SetChildAlongAxis");
         /*相对于父节点的停靠位置*/
         rect.SetInsetAndSizeFromParentEdge(axis == 0 ? RectTransform.Edge.Left : RectTransform.Edge.Top, pos, size);
+        Profiler.EndSample();
     }
 
     /// <summary>

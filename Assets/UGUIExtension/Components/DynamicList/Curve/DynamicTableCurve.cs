@@ -573,7 +573,6 @@ public class DynamicTableCurve : MonoBehaviour, IDragHandler, IBeginDragHandler,
         if (grid != null)
             return grid;
 
-
         GameObject obj = Instantiate(Grid.gameObject);
         grid = obj.GetComponent<DynamicGrid>();
         grid.transform.SetParent(Content, false);

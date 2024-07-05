@@ -16,15 +16,22 @@ public class DynamicGridClickHelper : MonoBehaviour, IPointerClickHandler
     /// 回调事件
     /// </summary>
     public Action<PointerEventData> OnClick;
-
+    public Action<int, int, DynamicGrid> DynamicTableGridDelegate;
+    public DynamicGrid m_grid;
+    public delegate void OnTableGridTouched(DynamicGrid grid, PointerEventData eventData);
+    public OnTableGridTouched m_OnTableGridTouched;
     /// <summary>
     /// 点击
     /// </summary>
     /// <param name="eventData"></param>
     public void OnPointerClick(PointerEventData eventData)
     {
-        if (OnClick != null)
-            OnClick(eventData);
+        //if (OnClick != null)
+        //    OnClick(eventData);
+        if (m_OnTableGridTouched != null)
+        {
+            m_OnTableGridTouched(m_grid, eventData);
+        }
     }
 
     public void SetupClickEnable(bool IsEnable, Action<PointerEventData> onClick = null)
