@@ -298,7 +298,7 @@ public class DynamicTableNormal : UIBehaviour
     /// 设置总数,第一次创建item为异步
     /// </summary>
     /// <param name="count">容量</param>
-    /// <param name="focusIndex">跳转第几个item，从0开始。-1表示不调整，滚动层保持当前位置</param>
+    /// <param name="focusIndex">跳转第几个item，从0开始。-1表示不跳转，滚动层保持当前位置</param>
     public virtual void SetTotalCount(int count,int focusIndex = -1)
     {
         if (count < 0)
@@ -410,6 +410,7 @@ public class DynamicTableNormal : UIBehaviour
         SetContentOffest();
         // 重载Grid
         ReloadGrids();
+        ClearLastStartEndIndex();
     }
 
     public void ResetData(int index)
@@ -424,6 +425,7 @@ public class DynamicTableNormal : UIBehaviour
         ResetStartIndex(index);
         // 重载Grid
         ReloadGrids();
+        ClearLastStartEndIndex();
     }
 
     /// <summary>
@@ -468,6 +470,7 @@ public class DynamicTableNormal : UIBehaviour
         SetContentOffest();
         // 重载Grid
         StartCoroutine(AsyncLoadGrid());
+        ClearLastStartEndIndex();
     }
 
     IEnumerator AsyncLoadGrid()
@@ -756,6 +759,11 @@ public class DynamicTableNormal : UIBehaviour
         }
     }
 
+    void ClearLastStartEndIndex()
+    {
+        m_lastViewEndIndex = -1;
+        m_lastViewStartIndex = -1;
+    }
     /// <summary>
     /// 活动回调
     /// </summary>
@@ -776,9 +784,8 @@ public class DynamicTableNormal : UIBehaviour
 
         Profiler.BeginSample("OnScrollRectValueChanged222");
         StartIndex = startIndex;
-        //Debug.Log($"startIndex:{startIndex} -- endIndex:{endIndex}");
-        //GC在先遍历正在使用，加入到预回收
-        //回收
+
+        //回收不在当前可视区索引的item
         foreach (var grid in UsingGridSet)
         {
             if (grid.Index > endIndex || grid.Index < startIndex)
@@ -795,23 +802,47 @@ public class DynamicTableNormal : UIBehaviour
 
         Profiler.BeginSample("OnScrollRectValueChanged3333");
 
-        //出现，这是指当前可视区的起始-末尾
-        //其实可以比对上次的start，end，得到这次需要显示的。如果几百个一起遍历还是比较耗时
-        for (int i = startIndex; i <= endIndex; ++i)
+        if ((m_lastViewStartIndex != -1 && m_lastViewEndIndex != -1) && m_lastViewStartIndex != startIndex)
         {
-            Profiler.BeginSample("OnScrollRectValueChanged4444");
-            DynamicGrid grid = GetGridByIndex(i);
-            Profiler.EndSample();
-            if (grid != null)
+            PublicFunc.Log($"LastStart:{m_lastViewStartIndex}--LastEnd:{m_lastViewEndIndex}--star:{startIndex}--end:{endIndex}");
+            if (m_lastViewStartIndex < startIndex)
             {
-                //已经在View中的不处理
-                continue;
+                //向上滚，例如上次是10，这次是9。那么新增的是末尾
+                for (int i = endIndex; i > m_lastViewEndIndex; i--)
+                {
+                    DynamicGridAtIndex(i);
+                }
             }
-            //新出现设置
-            Profiler.BeginSample("OnScrollRectValueChanged555");
-            DynamicGridAtIndex(i);
-            Profiler.EndSample();
+            else if (m_lastViewStartIndex > startIndex)
+            {
+                //向下滚。那么新增的开头
+                for (int i = startIndex; i < m_lastViewStartIndex; i++)
+                {
+                    DynamicGridAtIndex(i);
+                }
+            }
         }
+        else
+        {
+            for (int i = startIndex; i <= endIndex; ++i)
+            {
+                Profiler.BeginSample("OnScrollRectValueChanged4444");
+                //o（n^2）耗时，每次遍历又去找是否存在，例如50个可见，再遍历50个item，每次遍历50*50
+                DynamicGrid grid = GetGridByIndex(i);
+                Profiler.EndSample();
+                if (grid != null)
+                {
+                    //已经在View中的不处理
+                    continue;
+                }
+                //新出现设置
+                Profiler.BeginSample("OnScrollRectValueChanged555");
+                DynamicGridAtIndex(i);
+                Profiler.EndSample();
+            }
+        }
+        m_lastViewStartIndex = startIndex;
+        m_lastViewEndIndex = endIndex;
         Profiler.EndSample();
 
     }
@@ -823,7 +854,7 @@ public class DynamicTableNormal : UIBehaviour
     /// <returns></returns>
     public DynamicGrid GetGridByIndex(int index)
     {
-        //每次访问是遍历，可以把useGrid换成字典形式，可能比遍历访问快点
+        //每次访问是遍历，不能换成字典形式，因为如果index 作为字典key，会变动
         foreach (var grid in UsingGridSet)
         {
             if (grid.Index != index)
